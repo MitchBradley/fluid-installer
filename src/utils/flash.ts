@@ -36,7 +36,8 @@ export const flashDevice = async (
         const loaderOptions = {
             transport,
             baudrate: baud,
-            terminal: terminal
+            terminal: terminal,
+            resetConstructors: CustomReset(transport, "D0R1W50D1R0W50")
         } as LoaderOptions;
         loader = new ESPLoader(loaderOptions);
         await loader!.main();
@@ -69,11 +70,7 @@ export const flashDevice = async (
         onState(InstallerState.RESTARTING);
 
         // Reset the controller
-        await transport.setDTR(false);
-        await transport.setRTS(true);
-        await new Promise((r) => setTimeout(r, 100));
-        await transport.setRTS(false);
-        await new Promise((r) => setTimeout(r, 50));
+        transport.hardReset();
         await transport.disconnect();
         await new Promise((r) => setTimeout(r, 1000));
     }
