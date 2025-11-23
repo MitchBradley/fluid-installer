@@ -155,6 +155,11 @@ export class SerialPort {
         return Promise.reject();
     };
 
+    async setRtsDtr(rts_enabled: boolean, dtr_enabled: boolean) {
+        this.dtrState = dtr_enabled;
+        await this.serialPort.setSignals({ requestToSend: rts+enabled, dataTerminalReady: dtr_enabled });
+    }
+
     async setDTR(enabled: boolean) {
         this.dtrState = enabled;
         await this.serialPort.setSignals({ dataTerminalReady: enabled });
@@ -268,14 +273,34 @@ export class SerialPort {
         this.readers = this.readers.filter((r) => r !== reader);
     };
 
+    // Reset the ESP32 in Run mode
     hardReset = async () => {
-        await this.serialPort.setSignals({
-            dataTerminalReady: false,
-            requestToSend: true
-        });
+        // Drive EN low with BOOT0 high
+        this.setRtsDtr(true, false);
         await new Promise((r) => setTimeout(r, 100));
-        await this.serialPort.setSignals({ dataTerminalReady: true });
+        // Release EN to rise to high, while BOOT0 remains high
+        // This is the final state during normal operation
+        this.setRtsDtr(true, true);
         await new Promise((r) => setTimeout(r, 50));
+    };
+
+    // Reset the ESP32 into FLASH uploader mode
+    resetToFlash = async () => {
+        // Drive EN low with BOOT0 high
+        this.setRtsDtr(true, false);
+        await new Promise((r) => setTimeout(r, 100));
+        // "Simultaneously" set EN to high and BOOT0 to low
+        // The ESP32 hardware reset circuit has a capacitor on EN that
+        // delays its rise time, but no such capacitor on BOOT0.
+        // The BOOT0 line will go low immediately, before the delayed
+        // low-to-high transition on EN, thus causing the ESP32 to
+        // enter FLASH uploader mode.
+        this.setRtsDtr(false, true);
+        await new Promise((r) => setTimeout(r, 50));
+        // After a timeout, we release BOOT0 to its normal high state.
+        // BOOT0 only needs to stay low long enough for EN to go high
+        // after the capacitor delay.
+        this.setRtsDtr(true, true)
     };
 
     private startReading = async () => {
