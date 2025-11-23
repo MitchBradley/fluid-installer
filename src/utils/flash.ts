@@ -70,7 +70,11 @@ export const flashDevice = async (
         onState(InstallerState.RESTARTING);
 
         // Reset the controller
-        transport.hardReset();
+        await transport.setDTR(false);
+        await transport.setRTS(true);
+        await new Promise((r) => setTimeout(r, 100));
+        await transport.setRTS(false);
+        await new Promise((r) => setTimeout(r, 50));
         await transport.disconnect();
         await new Promise((r) => setTimeout(r, 1000));
     }
