@@ -36,7 +36,8 @@ export const flashDevice = async (
         const loaderOptions = {
             transport,
             baudrate: baud,
-            terminal: terminal
+            terminal: terminal,
+            resetConstructors: CustomReset(transport, "D0R1W50D1R0W50")
         } as LoaderOptions;
         loader = new ESPLoader(loaderOptions);
         await loader!.main();
