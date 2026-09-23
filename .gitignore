@@ -3,3 +3,5 @@ dist
 .parcel-cache
 *.css.d.ts
 .idea
+.DS_Store
+.claude
