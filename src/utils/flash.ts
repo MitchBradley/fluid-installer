@@ -92,4 +92,9 @@ export type DeviceInfo = {
     manufacturer: string;
     device: string;
     flashSize: string;
+    // Embedded PSRAM type read from efuse (e.g. ESP32-S3 WROOM-1 N8R2/N8R8).
+    // Undefined when the chip has no such detection (esptool-js only
+    // implements it for ESP32-S3 today) or the read failed -- callers
+    // should not assume "none" in that case, since it just means "unknown".
+    psram?: "none" | "quad" | "octal";
 };

@@ -26,7 +26,14 @@ import { ConfigValidation } from "./pages/configvalidation/ConfigValidation";
 
 const Root = () => {
     const navigate = useNavigate();
-    const githubService = useMemo(() => new GithubService(), []);
+    // TEMP: local testing of the PSRAM manifest changes against a
+    // provisional manifest.json (see /tmp scratch release-test-server),
+    // without touching the real fluidnc-releases mirror repo. Revert
+    // before committing.
+    const githubService = useMemo(
+        () => new GithubService(undefined, "http://127.0.0.1:8899"),
+        []
+    );
 
     if (isSafari() || isFirefox()) {
         return <Unsupported />;

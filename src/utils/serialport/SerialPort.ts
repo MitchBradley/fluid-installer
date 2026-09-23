@@ -19,6 +19,70 @@ export type LineReader = (data: string) => void;
 const INFO_BAUD_RATE = 115200;
 const MAX_SAVED_LINES = 1000;
 
+// Detects *embedded* PSRAM (as found on WROOM-1 N8R2/N8R8 modules -- not an
+// external PSRAM chip on a custom board) from the ESP32-S3's PSRAM_CAP
+// efuse field, per Espressif's efuse table (esp_efuse_table.csv, EFUSE_BLK1
+// bits 131-132 + bit 179): 0 None, 1 8M, 2 2M, 3 16M, 4 4M.
+//
+// esptool-js's own ESP32S3ROM.getPsramCap() only reads the low 2 bits
+// (EFUSE_BLK1 bits 131-132) and silently drops the high bit (bit 179), so
+// it can only ever return 0-3 -- any chip whose real cap is 4 or higher
+// (e.g. a 4MB-PSRAM chip, cap 4) misreads as cap 0 ("no PSRAM"). Confirmed
+// against the actual esptool.py (targets/esp32s3.py get_psram_cap) and
+// still present in esptool-js 0.7.0 (latest as of this writing), so we
+// read both efuse words ourselves instead of trusting the library.
+//
+// Espressif does not expose PSRAM bus width (Quad vs Octal) as a readable
+// efuse at all -- only capacity. The Quad/Octal mapping below is by
+// module-part-number convention, not a documented bit:
+//   cap 1 (8MB)  -> Octal, WROOM-1 R8
+//   cap 2 (2MB)  -> Quad,  WROOM-1 R2
+//   cap 3 (16MB) -> Octal, WROOM-2 R16V (per its datasheet)
+//   cap 4 (4MB)  -> unknown, and deliberately left unmapped rather than
+//     guessed: no mainstream module reports 4MB, the one chip we tested
+//     it on was an "E2" *engineering sample* (per its marking) where
+//     Espressif itself doesn't guarantee efuse-burned values -- including
+//     PSRAM_CAP -- are meaningful at all, and empirically neither driver
+//     could initialize that chip's PSRAM anyway ("PSRAM chip is not
+//     connected, or wrong PSRAM line mode" from both quad_psram and
+//     octal_psram). So there's nothing reliable to map cap 4 to; leaving
+//     it undefined makes the installer show all variants unfiltered.
+const PSRAM_CAP_MAP: Record<number, "none" | "quad" | "octal" | undefined> = {
+    0: "none",
+    1: "octal",
+    2: "quad",
+    3: "octal"
+};
+
+type ChipWithEfuseBlock1 = {
+    CHIP_NAME: string;
+    EFUSE_BLOCK1_ADDR: number;
+};
+
+async function detectPsram(
+    loader: ESPLoader
+): Promise<"none" | "quad" | "octal" | undefined> {
+    const chip = loader.chip as unknown as Partial<ChipWithEfuseBlock1>;
+    if (
+        chip.CHIP_NAME !== "ESP32-S3" ||
+        typeof chip.EFUSE_BLOCK1_ADDR !== "number"
+    ) {
+        return undefined;
+    }
+    try {
+        const block1 = chip.EFUSE_BLOCK1_ADDR;
+        const word4 = await loader.readReg(block1 + 4 * 4);
+        const word5 = await loader.readReg(block1 + 4 * 5);
+        const capLow2 = (word4 >> 3) & 0x03;
+        const capHiBit = (word5 >> 19) & 0x01;
+        const cap = (capHiBit << 2) | capLow2;
+        return PSRAM_CAP_MAP[cap];
+    } catch (error) {
+        console.log("Could not read PSRAM efuse:", error);
+        return undefined;
+    }
+}
+
 export enum SerialPortEvent {
     DISCONNECTED,
     CONNECTION_ERROR
@@ -97,7 +161,8 @@ export class SerialPort {
                 device:
                     ((flashId >> 8) & 0xff).toString(16) +
                     flashIdLowbyte.toString(16),
-                flashSize: loader.DETECTED_FLASH_SIZES[flashIdLowbyte]
+                flashSize: loader.DETECTED_FLASH_SIZES[flashIdLowbyte],
+                psram: await detectPsram(loader)
             };
 
             return Promise.resolve(this.deviceInfo);

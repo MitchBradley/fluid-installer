@@ -64,6 +64,11 @@ const Firmware = ({ onInstall, githubService }: Props) => {
     const [isDetecting, setIsDetecting] = useState<boolean>(true);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [mcu, setMcu] = useState<string | undefined>(undefined);
+    const [psram, setPsram] = useState<"none" | "quad" | "octal" | undefined>(
+        undefined
+    );
+    const [showAllPsramChoices, setShowAllPsramChoices] =
+        useState<boolean>(false);
 
     const serialPort = useContext(SerialPortContext);
 
@@ -88,6 +93,54 @@ const Firmware = ({ onInstall, githubService }: Props) => {
         chooseMcu();
         return selectedChoices[selectedChoices.length - 1];
     }, [selectedChoices]);
+
+    // The level right under an MCU (e.g. esp32s3) lists firmware variants
+    // (wifi, wifi-octalpsram, noradio, ...), each carrying the list of
+    // detected-PSRAM values it should be offered for (compatible_psram --
+    // e.g. the Quad-PSRAM "wifi" build lists all three, since it still
+    // runs fine, just without PSRAM, on none/Octal modules; the Octal-only
+    // build lists just "octal"). This is an *inclusion* filter, not a
+    // narrow-to-one-match: a module can (and for Octal modules, normally
+    // will) have more than one compatible variant, letting the user choose
+    // between "plain, always works" and "enables PSRAM, but don't pick
+    // this if you use GPIO 33-37 for something else" (see that variant's
+    // description). All policy here comes from manifest data; nothing
+    // about which variant suits which PSRAM type is hardcoded.
+    //
+    // Filtering only applies once the board's actual PSRAM is known (from
+    // efuse, read alongside the MCU) and every entry at this level
+    // actually carries a compatible_psram list, and only until the user
+    // asks to see the rest -- detection can be wrong (it only sees
+    // *embedded* PSRAM, not an external chip on a custom board) or
+    // inconclusive (engineering-sample efuses, chips esptool-js doesn't
+    // support). If filtering would leave nothing to show (shouldn't
+    // happen given the manifest is expected to always keep a
+    // universally-compatible variant, but data could be wrong), fall back
+    // to showing everything rather than stranding the user.
+    const psramFilterAvailable =
+        psram !== undefined &&
+        !!choice?.choices?.length &&
+        choice.choices.every((c) => Array.isArray(c.compatible_psram));
+    const psramFilterActive = psramFilterAvailable && !showAllPsramChoices;
+    const displayedChoice = useMemo(() => {
+        if (!choice || !psramFilterActive) {
+            return choice;
+        }
+        const filtered = choice.choices.filter((c) =>
+            c.compatible_psram!.includes(psram!)
+        );
+        if (!filtered.length) {
+            return choice;
+        }
+        return { ...choice, choices: filtered };
+    }, [choice, psramFilterActive, psram]);
+
+    useEffect(() => {
+        // A fresh navigation into a different choice level should re-arm
+        // the filter rather than carry over an override from a previous
+        // (unrelated) screen.
+        setShowAllPsramChoices(false);
+    }, [choice]);
     const chooseFirmware = (id) => {
         const release = releases.find((r) => r.id + "" === id + "");
         setSelectedRelease(release);
@@ -145,6 +198,7 @@ const Firmware = ({ onInstall, githubService }: Props) => {
                 .getInfo()
                 .then((result) => {
                     setMcu(mcuMap.get(result.mcu));
+                    setPsram(result.psram);
                 })
                 .catch((error) => {
                     console.log("Cannot get MCU:" + error);
@@ -330,13 +384,27 @@ const Firmware = ({ onInstall, githubService }: Props) => {
                                     {unsupportedMessage}
                                 </div>
                             )}
+                            {!unsupportedMessage && psramFilterActive && (
+                                <Alert variant="info">
+                                    Detected {psram} PSRAM &mdash; hiding
+                                    firmware variants that aren&apos;t
+                                    compatible with it.{" "}
+                                    <Alert.Link
+                                        onClick={() =>
+                                            setShowAllPsramChoices(true)
+                                        }
+                                    >
+                                        Show all variants
+                                    </Alert.Link>
+                                </Alert>
+                            )}
                             {!unsupportedMessage &&
-                                choice &&
+                                displayedChoice &&
                                 releaseManifest &&
-                                !choice.images && (
+                                !displayedChoice.images && (
                                     <div>
                                         <Choice
-                                            choice={choice}
+                                            choice={displayedChoice}
                                             onSelect={onSelect}
                                         />
                                     </div>

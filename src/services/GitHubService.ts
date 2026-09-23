@@ -65,6 +65,12 @@ export type FirmwareChoice = {
     images: string[] | undefined;
     erase: boolean | undefined;
     choices: FirmwareChoice[];
+    // The detected-PSRAM values ("none"/"quad"/"octal", from DeviceInfo.psram)
+    // this variant should be offered for -- e.g. a Quad-PSRAM build lists all
+    // three because it still runs fine (without PSRAM) on none/Octal modules,
+    // while an Octal-only build lists just "octal". Policy lives here, in
+    // data the manifest provides, rather than hardcoded in the installer.
+    compatible_psram?: ("none" | "quad" | "octal")[];
 };
 
 export type FirmwareFile = {
